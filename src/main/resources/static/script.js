@@ -1,6 +1,3 @@
-// script.js - connect to /ws-ridematex, subscribe /topic/new-ride/{driverId}
-// clicking Accept sends to /app/ride-acceptance { driverId, bookingId }
-
 (function () {
   const serverUrlEl = document.getElementById('serverUrl');
   const driverIdEl = document.getElementById('driverId');
@@ -23,106 +20,105 @@
     if (level === 'success') entry.style.color = '#86efac';
     logEl.appendChild(entry);
     logEl.scrollTop = logEl.scrollHeight;
-    try { console[level === 'error' ? 'error' : 'log'](msg); } catch(e){}
+    try { console[level === 'error' ? 'error' : 'log'](msg); } catch (_) {}
   }
 
   function setStatus(connected) {
-    if (connected) {
-      connStatus.className = 'status connected';
-      connStatus.textContent = '🟢 Connected';
-    } else {
-      connStatus.className = 'status disconnected';
-      connStatus.textContent = '⚫ Disconnected';
-    }
+    connStatus.className = 'status ' + (connected ? 'connected' : 'disconnected');
+    connStatus.textContent = connected ? '🟢 Connected' : '⚫ Disconnected';
   }
 
   function clearNotifications() {
     notificationsList.innerHTML = '<div class="empty">No notifications yet</div>';
   }
 
-  function addNotification(obj) {
+  function escapeHtml(s) {
+    return ('' + s).replace(/[&<>"']/g, c => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    }[c]));
+  }
+
+  function sendRideAcceptance(driverId, bookingId) {
+    if (!stompClient || !stompClient.connected) {
+      log('Not connected to server', 'error');
+      return;
+    }
+
+    const payload = {
+      bookingId: String(bookingId),
+      driverId: Number(driverId)
+    };
+
+    stompClient.send('/app/ride-acceptance', {}, JSON.stringify(payload));
+    log(`Sent acceptance: ${JSON.stringify(payload)}`, 'success');
+  }
+
+  function renderRideRequest(notification) {
     const empty = notificationsList.querySelector('.empty');
     if (empty) empty.remove();
 
-    const el = document.createElement('div');
-    el.className = 'notif';
+    const driverId = (driverIdEl.value || '').trim();
+    const bookingId = notification.bookingId;
 
-    const booking = obj.bookingId ?? obj.booking_id ?? 'N/A';
-    const lat = obj.pickupLocationLatitude ?? obj.pickup_location_latitude ?? '';
-    const lon = obj.pickupLocationLongitude ?? obj.pickup_location_longitude ?? '';
+    const card = document.createElement('div');
+    card.className = 'notif';
 
-    // Unique element id to update after accept
-    const elId = 'notif-' + Date.now() + '-' + Math.floor(Math.random()*1000);
-
-    el.innerHTML = `
-      <strong>Booking ${escapeHtml(booking)}</strong>
-      <div class="meta">${lat || lon ? 'Pickup: ' + escapeHtml(lat) + ', ' + escapeHtml(lon) : ''}</div>
-      <div class="raw">${escapeHtml(JSON.stringify(obj))}</div>
-      <div class="actions">
-        <button class="btn-accept" data-booking="${escapeHtml(booking)}">Accept</button>
-        <button class="btn-reject" data-booking="${escapeHtml(booking)}">Reject</button>
+    card.innerHTML = `
+      <strong>Booking ${escapeHtml(bookingId)}</strong>
+      <div class="meta">
+        Pickup: ${escapeHtml(notification.pickupLocationLatitude || 'N/A')}, ${escapeHtml(notification.pickupLocationLongitude || 'N/A')}
       </div>
-      <div class="meta" style="margin-top:8px">Received: ${new Date().toLocaleTimeString()}</div>
+      <div class="raw">${escapeHtml(JSON.stringify(notification))}</div>
+      <div class="actions">
+        <button class="btn-accept">Accept</button>
+        <button class="btn-reject">Reject</button>
+      </div>
+      <div class="meta">${new Date().toLocaleTimeString()}</div>
     `;
-    el.id = elId;
-    notificationsList.insertBefore(el, notificationsList.firstChild);
 
-    // Attach handlers
-    const acceptBtn = el.querySelector('.btn-accept');
-    const rejectBtn = el.querySelector('.btn-reject');
+    const acceptBtn = card.querySelector('.btn-accept');
+    const rejectBtn = card.querySelector('.btn-reject');
 
-    acceptBtn.addEventListener('click', async () => {
-      const bookingId = acceptBtn.getAttribute('data-booking');
-      const driverId = (driverIdEl.value || '').trim();
-      if (!driverId) { log('Driver ID required to accept', 'error'); return; }
+    acceptBtn.addEventListener('click', () => {
+      if (!driverId) {
+        log('Driver ID is required', 'error');
+        return;
+      }
+
       acceptBtn.disabled = true;
       acceptBtn.textContent = 'Accepting...';
-      log(`Sending acceptance: driver=${driverId}, booking=${bookingId}`);
-      try {
-        // send STOMP message to /app/ride-acceptance
-        if (!stompClient || !stompClient.connected) {
-          throw new Error('Not connected');
-        }
-        const payload = {
-          driverId: parseInt(driverId, 10),
-          bookingId: parseInt(bookingId, 10)
-        };
-        stompClient.send('/app/ride-acceptance', {}, JSON.stringify(payload));
-        log('Ride acceptance sent', 'success');
 
-        // Immediately update UI (optimistic)
+      try {
+        sendRideAcceptance(driverId, bookingId);
         acceptBtn.textContent = 'Accepted';
-        acceptBtn.disabled = true;
         rejectBtn.disabled = true;
-        el.style.opacity = '0.9';
-        el.style.borderLeftColor = '#10b981';
+        card.style.borderLeftColor = '#10b981';
+        card.style.opacity = '0.9';
       } catch (err) {
         acceptBtn.disabled = false;
         acceptBtn.textContent = 'Accept';
-        log('Failed to send acceptance: ' + (err && err.message ? err.message : err), 'error');
+        log('Failed to send acceptance: ' + err.message, 'error');
       }
     });
 
     rejectBtn.addEventListener('click', () => {
-      // simple client-side remove for reject
-      el.remove();
-      log('Rejected booking ' + booking);
+      card.remove();
+      log(`Rejected booking ${bookingId}`, 'info');
     });
 
-    // Keep list bounded
-    while (notificationsList.children.length > 50) notificationsList.removeChild(notificationsList.lastChild);
-  }
-
-  function escapeHtml(s) {
-    return ('' + s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+    notificationsList.prepend(card);
   }
 
   function connectAndSubscribe() {
     const base = (serverUrlEl.value || '').replace(/\/+$/, '');
-    const id = (driverIdEl.value || '').trim();
+    const driverId = (driverIdEl.value || '').trim();
 
     if (!base) { log('Please enter server base URL', 'error'); return; }
-    if (!id) { log('Please enter driverId', 'error'); return; }
+    if (!driverId) { log('Please enter driver ID', 'error'); return; }
 
     const endpoint = base + '/ws-ridematex';
     log('Connecting to ' + endpoint);
@@ -134,48 +130,47 @@
       stompClient = Stomp.over(socket);
       stompClient.debug = null;
 
-      stompClient.connect({}, frame => {
+      stompClient.connect({}, () => {
         setStatus(true);
         log('Connected to STOMP server', 'success');
 
-        const topic = '/topic/new-ride/' + encodeURIComponent(id);
+        const topic = '/topic/new-ride/' + encodeURIComponent(driverId);
         log('Subscribing to ' + topic);
         subInfo.textContent = 'Subscribed to: ' + topic;
 
         subscription = stompClient.subscribe(topic, message => {
           try {
-            const body = message && message.body ? JSON.parse(message.body) : {};
-            addNotification(body);
-            log('Received notification for driver ' + id, 'success');
+            const data = message && message.body ? JSON.parse(message.body) : {};
+            renderRideRequest(data);
+            log('Received ride request for driver ' + driverId, 'success');
           } catch (e) {
-            log('Failed to parse message body: ' + (e && e.message ? e.message : e), 'error');
+            log('Failed to parse ride request: ' + e.message, 'error');
           }
         });
 
         connectBtn.classList.add('hidden');
         disconnectBtn.classList.remove('hidden');
-      }, rawErr => {
+      }, err => {
         setStatus(false);
-        let msg;
-        try {
-          if (typeof rawErr === 'string') msg = rawErr;
-          else if (rawErr && rawErr.headers && rawErr.headers.message) msg = rawErr.headers.message;
-          else if (rawErr && rawErr.message) msg = rawErr.message;
-          else msg = JSON.stringify(rawErr);
-        } catch (e) { msg = String(rawErr); }
+        const msg = typeof err === 'string'
+          ? err
+          : (err && err.headers && err.headers.message) || (err && err.message) || JSON.stringify(err);
         log('STOMP connection error: ' + msg, 'error');
         subInfo.textContent = 'Not subscribed';
       });
     } catch (e) {
       setStatus(false);
-      log('Connection attempt failed: ' + (e && e.message ? e.message : e), 'error');
+      log('Connection attempt failed: ' + e.message, 'error');
       subInfo.textContent = 'Not subscribed';
     }
   }
 
   function disconnect() {
     try {
-      if (subscription) { subscription.unsubscribe(); subscription = null; }
+      if (subscription) {
+        subscription.unsubscribe();
+        subscription = null;
+      }
       if (stompClient && stompClient.connected) {
         stompClient.disconnect(() => {
           setStatus(false);
@@ -187,19 +182,17 @@
         subInfo.textContent = 'Not subscribed';
       }
     } catch (e) {
-      log('Error while disconnecting: ' + (e && e.message ? e.message : e), 'error');
+      log('Error while disconnecting: ' + e.message, 'error');
     } finally {
       connectBtn.classList.remove('hidden');
       disconnectBtn.classList.add('hidden');
     }
   }
 
-  // DOM binds
   connectBtn.addEventListener('click', connectAndSubscribe);
   disconnectBtn.addEventListener('click', disconnect);
   clearLogBtn.addEventListener('click', () => { logEl.innerHTML = ''; });
 
-  // initial
   clearNotifications();
   setStatus(false);
   subInfo.textContent = 'Not subscribed';
