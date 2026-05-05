@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>RideMate — Driver Dashboard</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+    <!-- SockJS + STOMP -->
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+</head>
+<body>
+<div class="app">
+    <aside class="side">
+        <div class="brand">
+            <div class="logo">🚗</div>
+            <div class="title">RideMate</div>
+        </div>
+
+        <div class="controls">
+            <label class="field">
+                <span class="label">Server</span>
+                <input id="serverUrl" type="text" value="http://localhost:8080" />
+            </label>
+
+            <label class="field">
+                <span class="label">Driver ID</span>
+                <input id="driverId" type="number" min="1" placeholder="e.g. 42" />
+            </label>
+
+            <div class="buttons">
+                <button id="connectBtn" class="btn btn-primary">Connect & Subscribe</button>
+                <button id="disconnectBtn" class="btn btn-ghost hidden">Disconnect</button>
+            </div>
+
+            <div class="status-row">
+                <div id="connStatus" class="status disconnected">⚫ Disconnected</div>
+                <div id="subInfo" class="subinfo">Not subscribed</div>
+            </div>
+
+            <div class="log-mini">
+                <div class="log-mini-title">Log</div>
+                <div id="log" class="log-mini-box"></div>
+                <button id="clearLog" class="btn btn-link">Clear log</button>
+            </div>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="main-header">
+            <h1>Driver Notifications</h1>
+            <p class="muted">Realtime ride requests sent to your driver ID</p>
+        </header>
+
+        <section class="cards">
+            <div class="card">
+                <div class="card-title">Recent Requests</div>
+                <div id="notificationsList" class="notifications">
+                    <div class="empty">No notifications yet</div>
+                </div>
+            </div>
+
+            <div class="card small">
+                <div class="card-title">Quick Info</div>
+                <div class="muted smallpad">
+                    Subscribes to <code>/topic/new-ride/{driverId}</code>. When you click Accept, the client sends an acceptance to <code>/app/ride-acceptance</code>.
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
